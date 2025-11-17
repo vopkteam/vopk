@@ -6,7 +6,6 @@ It provides a consistent command interface for managing software packages across
 APKG abstracts away differences between package managers such as **apt**, **pacman**, **dnf**, **yum**, **zypper**, and **apk**, allowing you to perform common operations using a single, universal CLI tool.
 
 ---
-
 ## ✨ Features
 
 - ✔ Unified interface across Linux distributions  
@@ -37,3 +36,6 @@ If a supported package manager is present in the system, APKG will detect and us
 ---
 
 ## 🚀 Installation
+```bash
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/gpteamofficial/apkg/main/installscript.sh)
+```
