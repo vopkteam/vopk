@@ -3,10 +3,11 @@
 # Supports: apt/apt-get, pacman(+yay/AUR), dnf, yum, zypper, apk (Alpine),
 #           xbps (Void), emerge (Gentoo)
 # NOTE: This script is intentionally conservative for safety.
-
+# LINUX ONLY. USE AT YOUR OWN RISK.
+# LICENSE: MIT
 set -euo pipefail
 
-APKG_VERSION="0.5.0"
+APKG_VERSION="0.6.0"
 
 # ------------- logging helpers -------------
 
@@ -20,6 +21,9 @@ RESET='\033[0m'
 log()  { printf "${BOLD}[APKG]${RESET} ${GREEN}[INF]${RESET} %s\n" "$*" >&2; }
 warn() { printf "${BOLD}[APKG]${RESET} ${YELLOW}[WARN]${RESET} %s\n" "$*" >&2; }
 die()  { printf "${BOLD}[APKG]${RESET} ${RED}[ERROR]${RESET} %s\n" "$*" >&2; exit 1; }
+
+# لطيف مع Ctrl+C / kill
+trap 'echo; die "Operation interrupted by user."' INT TERM
 
 # ------------- global flags -------------
 
@@ -510,51 +514,82 @@ install_yay_if_needed() {
   return 0
 }
 
+# Arch install logic:
+# - يجرب pacman أولاً
+# - أي باكدج مش في official يعتبر مرشح AUR
+# - يحاول يثبت مرشحي AUR بـ yay
+# - ما يقول "not found" إلا بعد ما يحاول AUR
 arch_install_with_yay() {
   local pkgs=("$@")
-  local out
+  local official_pkgs=()
+  local aur_candidates=()
+  local p
 
-  check_pkgs_exist_generic "${pkgs[@]}"
-  if ((${#APKG_PRESENT_PKGS[@]} == 0)); then
-    warn "No valid packages to install (Arch/pacman)."
-    return 1
+  if [[ ${#pkgs[@]} -eq 0 ]]; then
+    die "You must specify at least one package to install."
   fi
 
-  echo "apkg: Packages to install (Arch):"
-  printf '  %s\n' "${APKG_PRESENT_PKGS[@]}"
-
-  if ! apkg_confirm "Install packages: ${APKG_PRESENT_PKGS[*]} ?"; then
-    return 1
-  fi
-
-  if run_and_capture out ${SUDO} pacman -S --needed --noconfirm "${APKG_PRESENT_PKGS[@]}"; then
-    return 0
-  fi
-
-  if grep -qiE 'target not found|could not find|no such package' <<< "$out"; then
-    log "Some packages not found in official repos, trying yay (AUR)..."
-
-    if install_yay_if_needed; then
-      local yay_out=""
-      if run_and_capture yay_out yay -S --needed --noconfirm "${APKG_PRESENT_PKGS[@]}"; then
-        return 0
-      else
-        if grep -qiE 'not found|could not find|no such package' <<< "$yay_out"; then
-          print_pkg_not_found_msgs "${APKG_PRESENT_PKGS[@]}"
-          return 1
-        fi
-        warn "Error while installing via yay."
-        return 1
-      fi
+  # صنّف البكجات: official vs AUR-candidate
+  for p in "${pkgs[@]}"; do
+    if pacman -Si "$p" >/dev/null 2>&1; then
+      official_pkgs+=("$p")
     else
-      warn "Could not use yay (AUR) automatically. Package may exist only in AUR."
-      print_pkg_not_found_msgs "${APKG_PRESENT_PKGS[@]}"
+      aur_candidates+=("$p")
+    fi
+  done
+
+  if ((${#official_pkgs[@]} == 0 && ${#aur_candidates[@]} == 0)); then
+    warn "No valid packages to install (Arch)."
+    return 1
+  fi
+
+  echo "apkg: Packages to install (Arch official repos):"
+  if ((${#official_pkgs[@]} > 0)); then
+    printf '  %s\n' "${official_pkgs[@]}"
+  else
+    echo "  (none)"
+  fi
+
+  echo "apkg: Packages to install (AUR candidates):"
+  if ((${#aur_candidates[@]} > 0)); then
+    printf '  %s\n' "${aur_candidates[@]}"
+  else
+    echo "  (none)"
+  fi
+
+  if ! apkg_confirm "Proceed with installation?"; then
+    return 1
+  fi
+
+  # أولاً: pacman للأوفشال
+  if ((${#official_pkgs[@]} > 0)); then
+    local out_pac=""
+    if ! run_and_capture out_pac ${SUDO} pacman -S --needed --noconfirm "${official_pkgs[@]}"; then
+      warn "Error while installing via pacman. Check the log above."
+    fi
+  fi
+
+  # ثانياً: AUR عبر yay
+  if ((${#aur_candidates[@]} > 0)); then
+    if ! install_yay_if_needed; then
+      warn "Could not set up 'yay' for AUR installation."
+      # ما نقدرش نتحقق من وجود البكجات فعلياً في AUR، فنقول للمستخدم إنها فشلت
+      print_pkg_not_found_msgs "${aur_candidates[@]}"
+      return 1
+    fi
+
+    local yay_out=""
+    if ! run_and_capture yay_out yay -S --needed --noconfirm "${aur_candidates[@]}"; then
+      if grep -qiE 'not found|could not find|no such package' <<< "$yay_out"; then
+        print_pkg_not_found_msgs "${aur_candidates[@]}"
+      else
+        warn "Error while installing via yay. Check the log above."
+      fi
       return 1
     fi
   fi
 
-  warn "Error while installing via pacman."
-  return 1
+  return 0
 }
 
 # ------------- core package commands -------------
@@ -1011,9 +1046,18 @@ cmd_show() {
     arch)
       local out_a=""
       if run_and_capture out_a pacman -Si "$@"; then
+        # pacman found it
         return 0
       else
         if grep -qi 'target not found' <<< "$out_a"; then
+          # جرّب AUR قبل ما تقول not found
+          if command -v yay >/dev/null 2>&1; then
+            local out_aur=""
+            if run_and_capture out_aur yay -Si "$@"; then
+              # yay طبع info بالفعل
+              return 0
+            fi
+          fi
           print_pkg_not_found_msgs "$@"
         else
           warn "Show failed."
@@ -1431,6 +1475,7 @@ main() {
       ;;
   esac
 }
+
 # ------------- script entry point -------------
 init_sudo
 main "$@"
