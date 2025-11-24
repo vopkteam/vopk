@@ -261,6 +261,17 @@ run_and_capture() {
   return "$__status"
 }
 
+# -------- preview helper (non-fatal dry-run) --------
+apkg_preview() {
+  # usage: apkg_preview <cmd> <args...>
+  # runs command in "ignore failure" mode (بعض مديري الحزم بيرجعوا non-zero في الـ dry-run)
+  set +e
+  "$@"
+  local _st=$?
+  set -e
+  return 0
+}
+
 # ------------- package existence checks (generic) -------------
 
 APKG_PRESENT_PKGS=()
@@ -418,6 +429,11 @@ debian_install_pkgs() {
     echo "apkg: Local .deb files to install:"
     printf '  %s\n' "${debs[@]}"
 
+    echo
+    log "dpkg dry-run (showing packages that would be installed from these .deb files)..."
+    apkg_preview ${SUDO} dpkg -i --dry-run "${debs[@]}"
+    echo
+
     if ! apkg_confirm "Install these .deb files via dpkg?"; then
       return 1
     fi
@@ -446,6 +462,11 @@ debian_install_pkgs() {
 
   echo "apkg: Packages to install (Debian/Ubuntu):"
   printf '  %s\n' "${present[@]}"
+
+  echo
+  log "APT dry-run (showing ALL packages that would be installed, including dependencies)..."
+  apkg_preview ${SUDO} ${PKG_MGR} install --dry-run "${present[@]}"
+  echo
 
   if ! apkg_confirm "Install packages: ${present[*]} ?"; then
     return 1
@@ -557,6 +578,19 @@ arch_install_with_yay() {
     echo "  (none)"
   fi
 
+  # ---- pacman dry-run preview ----
+  if ((${#official_pkgs[@]} > 0)); then
+    echo
+    log "pacman dry-run (all packages that would be installed from official repos, including deps):"
+    apkg_preview pacman -S --needed --print-format '%n' "${official_pkgs[@]}"
+    echo
+  fi
+
+  if ((${#aur_candidates[@]} > 0)); then
+    echo
+    log "AUR note: yay will resolve and show AUR dependencies during installation."
+  fi
+
   if ! apkg_confirm "Proceed with installation?"; then
     return 1
   fi
@@ -573,7 +607,6 @@ arch_install_with_yay() {
   if ((${#aur_candidates[@]} > 0)); then
     if ! install_yay_if_needed; then
       warn "Could not set up 'yay' for AUR installation."
-      # ما نقدرش نتحقق من وجود البكجات فعلياً في AUR، فنقول للمستخدم إنها فشلت
       print_pkg_not_found_msgs "${aur_candidates[@]}"
       return 1
     fi
@@ -720,6 +753,16 @@ cmd_install() {
       fi
       echo "apkg: Packages to install (RedHat):"
       printf '  %s\n' "${APKG_PRESENT_PKGS[@]}"
+
+      echo
+      log "RedHat dry-run (showing ALL packages that would be installed, including dependencies)..."
+      if [[ "${PKG_MGR}" == "dnf" ]]; then
+        apkg_preview ${SUDO} dnf install --assumeno "${APKG_PRESENT_PKGS[@]}"
+      else
+        apkg_preview ${SUDO} ${PKG_MGR} install --assumeno "${APKG_PRESENT_PKGS[@]}"
+      fi
+      echo
+
       if ! apkg_confirm "Install packages: ${APKG_PRESENT_PKGS[*]} ?"; then
         return 1
       fi
@@ -744,6 +787,12 @@ cmd_install() {
       fi
       echo "apkg: Packages to install (SUSE):"
       printf '  %s\n' "${APKG_PRESENT_PKGS[@]}"
+
+      echo
+      log "zypper dry-run (showing ALL packages that would be installed, including dependencies)..."
+      apkg_preview ${SUDO} zypper install -y --dry-run "${APKG_PRESENT_PKGS[@]}"
+      echo
+
       if ! apkg_confirm "Install packages: ${APKG_PRESENT_PKGS[*]} ?"; then
         return 1
       fi
@@ -768,6 +817,12 @@ cmd_install() {
       fi
       echo "apkg: Packages to install (Alpine):"
       printf '  %s\n' "${APKG_PRESENT_PKGS[@]}"
+
+      echo
+      log "apk dry-run (showing ALL packages that would be installed, including dependencies)..."
+      apkg_preview ${SUDO} apk add --no-interactive --simulate "${APKG_PRESENT_PKGS[@]}"
+      echo
+
       if ! apkg_confirm "Install packages: ${APKG_PRESENT_PKGS[*]} ?"; then
         return 1
       fi
@@ -792,6 +847,14 @@ cmd_install() {
       fi
       echo "apkg: Packages to install (Void):"
       printf '  %s\n' "${APKG_PRESENT_PKGS[@]}"
+
+      echo
+      log "xbps-install dry-run (showing ALL packages that would be installed, including dependencies)..."
+      if command -v xbps-install >/dev/null 2>&1; then
+        apkg_preview ${SUDO} xbps-install --dry-run "${APKG_PRESENT_PKGS[@]}"
+      fi
+      echo
+
       if ! apkg_confirm "Install packages: ${APKG_PRESENT_PKGS[*]} ?"; then
         return 1
       fi
@@ -811,6 +874,12 @@ cmd_install() {
     gentoo)
       echo "apkg: Packages to install (Gentoo):"
       printf '  %s\n' "$@"
+
+      echo
+      log "emerge pretend (showing ALL packages that would be merged, including dependencies)..."
+      apkg_preview ${SUDO} emerge -p "$@"
+      echo
+
       if ! apkg_confirm "Install packages: $* ?"; then
         return 1
       fi
@@ -1046,15 +1115,12 @@ cmd_show() {
     arch)
       local out_a=""
       if run_and_capture out_a pacman -Si "$@"; then
-        # pacman found it
         return 0
       else
         if grep -qi 'target not found' <<< "$out_a"; then
-          # جرّب AUR قبل ما تقول not found
           if command -v yay >/dev/null 2>&1; then
             local out_aur=""
             if run_and_capture out_aur yay -Si "$@"; then
-              # yay طبع info بالفعل
               return 0
             fi
           fi
@@ -1308,6 +1374,7 @@ cmd_install_dev_kit() {
   case "${PKG_MGR_FAMILY}" in
     debian)
       ${SUDO} ${PKG_MGR} update
+      # هنا مش عامل dry-run عشان دي عملية "meta" كبيرة؛ لو حابب أقدر أضيفها برضه بنفس الأسلوب
       ${SUDO} ${PKG_MGR} install -y build-essential git curl wget pkg-config
       ;;
     debian_dpkg)
