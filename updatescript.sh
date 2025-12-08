@@ -4,6 +4,9 @@
 # - On Arch: temporary 'aurbuild' user to install yay, then cleanup
 # - Colored output via printf
 # - POSIX sh compatible
+#
+# Designed to work reliably even when piped, e.g.:
+#   curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopkg/main/updatescript.sh | sudo sh
 
 set -eu
 
@@ -77,7 +80,7 @@ usage() {
 
 require_root() {
   if [ "$(id -u)" -ne 0 ]; then
-    fail "This script must be run as root. Try: sudo $0"
+    fail "This script must be run as root. Try: sudo sh $0"
   fi
 }
 
@@ -109,6 +112,20 @@ detect_pkg_mgr() {
   fi
 }
 
+# Always try /dev/tty for interactive input to avoid fighting with pipes.
+# If /dev/tty is not available or read fails, we treat it as non-interactive.
+read_from_tty() {
+  # $1: variable name to assign into
+  varname=$1
+  if [ -r /dev/tty ]; then
+    # suppress "read error" noise if TTY is not usable
+    if IFS= read -r "$varname" 2>/dev/null </dev/tty; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
 ask_confirmation() {
   # $1 = message, $2 = default (Y/N, optional, default N)
   msg=$1
@@ -132,15 +149,11 @@ ask_confirmation() {
 
   printf '%s[vopk-installer][PROMPT]%s %s %s ' "$C_WARN" "$C_RESET" "$msg" "$prompt" >&2
 
-  if [ -t 0 ]; then
-    if ! read -r ans </dev/tty; then
-      return 1
-    fi
-  elif [ -r /dev/tty ]; then
-    if ! read -r ans </dev/tty; then
-      return 1
-    fi
-  else
+  ans=""
+  if ! read_from_tty ans; then
+    # No usable TTY: be safe and treat as "no"
+    printf '\n' >&2
+    warn "No interactive terminal available; assuming NO."
     return 1
   fi
 
@@ -546,6 +559,8 @@ main() {
 
   log "Welcome to the VOPK installer & maintenance tool."
 
+  # Non-interactive mode with explicit command:
+  #   curl .../updatescript.sh | sudo sh -s -- -y update
   if [ -n "$CMD" ] && [ "$CMD" != "menu" ]; then
     case "$CMD" in
       install)
@@ -582,12 +597,11 @@ main() {
   # interactive menu (default behavior)
   show_menu
 
-  if [ -t 0 ]; then
-    read -r choice
-  elif [ -r /dev/tty ]; then
-    read -r choice </dev/tty
-  else
-    fail "No interactive terminal available to read input."
+  choice=""
+  if ! read_from_tty choice; then
+    printf '\n' >&2
+    fail "No interactive TTY available. Run with an explicit command, for example:
+  curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopkg/main/updatescript.sh | sudo sh -s -- -y update"
   fi
 
   case "$choice" in
