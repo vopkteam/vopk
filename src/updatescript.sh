@@ -10,7 +10,7 @@
 
 set -eu
 
-VOPK_URL="https://raw.githubusercontent.com/gpteamofficial/vopkg/main/vopk"
+VOPK_URL="https://raw.githubusercontent.com/gpteamofficial/vopkg/main/bin/vopk"
 VOPK_DEST="/usr/local/bin/vopk"
 VOPK_BAK="/usr/local/bin/vopk.bak"
 

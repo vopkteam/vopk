@@ -7,11 +7,11 @@
 # - POSIX sh compatible
 #
 # Works correctly when piped, e.g.:
-#   curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopkg/main/installscript.sh | sudo sh -s -- -y
+#   curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopkg/main/src/installscript.sh | sudo sh -s -- -y
 
 set -eu
 
-VOPK_URL="https://raw.githubusercontent.com/gpteamofficial/vopk/main/vopk"
+VOPK_URL="https://raw.githubusercontent.com/gpteamofficial/vopk/main/bin/vopk"
 VOPK_DEST="/usr/local/bin/vopk"
 
 PKG_MGR=""

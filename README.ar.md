@@ -132,20 +132,16 @@ vopk vmpkg list
 ---
 
 ## 🏗 التثبيت
-
-> ℹ️ الروابط أدناه تفترض أن المشروع موجود تحت `gpteamofficial/vopk`.  
-> إن كنت تستخدم fork أو namespace مختلف، عدّل الروابط بما يناسبك.
-
 ### سكربت التثبيت (موصى به)
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/installscript.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/src/installscript.sh)
 ```
 
 ### طريقة بديلة (في حال حظر process substitution)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/installscript.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/src/installscript.sh | sudo bash
 ```
 
 ---
@@ -155,7 +151,7 @@ curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/installscr
 استخدم سكربت الصيانة:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/updatescript.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/src/updatescript.sh | sudo bash
 ```
 
 من خلال هذا السكربت يمكنك:
