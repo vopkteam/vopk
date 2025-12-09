@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# vopk - Unified Package Manager Frontend (1.0.0)
+# vopk - Unified Package Manager Frontend (1.1.0)
 # Formerly: apkg
 #
 # Supports: apt/apt-get, pacman(+yay/AUR), dnf, yum, zypper, apk (Alpine),
@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-VOPK_VERSION="1.0.0"
+VOPK_VERSION="1.1.0"
 
 ###############################################################################
 # ENV / COMPAT
@@ -23,6 +23,11 @@ VOPK_VERSION="1.0.0"
 : "${VOPK_SUDO:=${APKG_SUDO:-}}"
 
 VOPK_ARGS=()
+
+# Distro detection
+DISTRO_ID=""
+DISTRO_ID_LIKE=""
+DISTRO_PRETTY_NAME=""
 
 ###############################################################################
 # COLORS & UI
@@ -211,6 +216,34 @@ init_sudo() {
 }
 
 ###############################################################################
+# DISTRO DETECTION
+###############################################################################
+
+detect_distro() {
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    DISTRO_ID="${ID:-}"
+    DISTRO_ID_LIKE="${ID_LIKE:-}"
+    DISTRO_PRETTY_NAME="${PRETTY_NAME:-${NAME:-}}"
+  else
+    DISTRO_ID=""
+    DISTRO_ID_LIKE=""
+    DISTRO_PRETTY_NAME=""
+  fi
+
+  debug "Distro ID: ${DISTRO_ID:-?}, ID_LIKE: ${DISTRO_ID_LIKE:-?}, PRETTY: ${DISTRO_PRETTY_NAME:-?}"
+}
+
+is_ubuntu_like() {
+  [[ "${DISTRO_ID}" == "ubuntu" || "${DISTRO_ID_LIKE}" == *ubuntu* ]]
+}
+
+is_debian_like() {
+  [[ "${DISTRO_ID}" == "debian" || "${DISTRO_ID_LIKE}" == *debian* ]]
+}
+
+###############################################################################
 # PACKAGE MANAGER DETECTION
 ###############################################################################
 
@@ -242,7 +275,7 @@ detect_pkg_mgr() {
     else
       PKG_MGR="apt"
     fi
-    PKG_MGR_FAMILY="debian"
+    PKG_MGR_FAMILY="debian"  # will re-specialize behavior via DISTRO_ID
   elif command -v dnf >/dev/null 2>&1; then
     PKG_MGR="dnf"
     PKG_MGR_FAMILY="redhat"
@@ -274,6 +307,8 @@ detect_pkg_mgr() {
   else
     die "No supported package manager found (pacman/apt/apt-get/dnf/yum/zypper/apk/xbps/emerge/dpkg/vmpkg)."
   fi
+
+  debug "PKG_MGR=${PKG_MGR}, PKG_MGR_FAMILY=${PKG_MGR_FAMILY}"
 }
 
 ensure_pkg_mgr() {
@@ -487,33 +522,482 @@ check_pkgs_exist_generic() {
 }
 
 ###############################################################################
+# NAME MAPPERS (PER FAMILY)
+###############################################################################
+
+# Debian "pure" mapping
+debian_fix_pkg_name() {
+  local name="$1"
+  local mapped=""
+
+  case "$name" in
+    # BASIC COMMON CONFUSIONS
+    docker)
+      mapped="docker.io"
+      warn "On Debian, 'docker' is actually 'docker.io' in main repos."
+      ;;
+    node)
+      mapped="nodejs"
+      warn "'node' is 'nodejs' on Debian."
+      ;;
+    npm)
+      mapped="npm"
+      ;;
+    pip|pip3|python-pip)
+      mapped="python3-pip"
+      warn "Using 'python3-pip' instead of 'pip'."
+      ;;
+    python)
+      mapped="python3"
+      warn "'python' command is 'python3' on modern Debian."
+      ;;
+    python2|python2-pip|pip2)
+      warn "Python2 is deprecated and removed on modern Debian."
+      mapped="python3"
+      ;;
+    # DEVELOPMENT TOOLS
+    gcc|g++)
+      mapped="build-essential"
+      warn "'$name' is part of build-essential on Debian."
+      ;;
+    make)
+      mapped="make"
+      ;;
+    cmake)
+      mapped="cmake"
+      ;;
+    clang)
+      mapped="clang"
+      ;;
+    # JS / WEB
+    yarn)
+      mapped="yarnpkg"
+      warn "'yarn' package is named 'yarnpkg' on Debian."
+      ;;
+    typescript)
+      mapped="node-typescript"
+      warn "Using 'node-typescript' for Debian."
+      ;;
+    eslint)
+      mapped="node-eslint"
+      warn "eslint is provided as 'node-eslint' in Debian."
+      ;;
+    # DATABASES
+    mysql)
+      mapped="mariadb-server"
+      warn "'mysql' is provided via 'mariadb-server' in Debian."
+      ;;
+    mysql-client)
+      mapped="mariadb-client"
+      warn "'mysql-client' is provided via 'mariadb-client' in Debian."
+      ;;
+    postgres|postgresql)
+      mapped="postgresql"
+      ;;
+    mongodb)
+      warn "MongoDB is NOT in official Debian repos. Using 'mongodb-clients' placeholder."
+      mapped="mongodb-clients"
+      ;;
+    redis)
+      mapped="redis-server"
+      ;;
+    # PHP
+    php)
+      mapped="php"
+      ;;
+    composer)
+      mapped="composer"
+      ;;
+    # RUBY
+    ruby-gems|rubygems)
+      mapped="ruby-full"
+      warn "Ruby gems are part of ruby-full."
+      ;;
+    # GO / RUST
+    go|golang)
+      mapped="golang-go"
+      ;;
+    rust)
+      mapped="rustc"
+      warn "Install 'rustc' (and possibly 'cargo'), or consider rustup."
+      ;;
+    cargo)
+      mapped="cargo"
+      ;;
+    # SYSTEM UTILITIES
+    ifconfig)
+      mapped="net-tools"
+      warn "'ifconfig' is provided by 'net-tools'."
+      ;;
+    iptables)
+      mapped="iptables"
+      ;;
+    htop)
+      mapped="htop"
+      ;;
+    neofetch)
+      mapped="neofetch"
+      ;;
+    fastfetch)
+      mapped="fastfetch"
+      ;;
+    tree)
+      mapped="tree"
+      ;;
+    # LIBRARIES
+    openssl)
+      mapped="openssl"
+      ;;
+    ssl|libssl)
+      mapped="libssl-dev"
+      warn "'$name' mapped to 'libssl-dev'."
+      ;;
+    zlib)
+      mapped="zlib1g"
+      ;;
+    zlib-dev|zlib-devel)
+      mapped="zlib1g-dev"
+      warn "'$name' mapped to 'zlib1g-dev'."
+      ;;
+    curl)
+      mapped="curl"
+      ;;
+    wget)
+      mapped="wget"
+      ;;
+    pkgconfig|pkg-config)
+      mapped="pkg-config"
+      ;;
+    # JAVA
+    java|jdk|openjdk)
+      mapped="default-jdk"
+      warn "Using 'default-jdk' on Debian."
+      ;;
+    # DEFAULT
+    *)
+      mapped="$name"
+      ;;
+  esac
+
+  echo "$mapped"
+}
+
+# Ubuntu / Ubuntu-like mapping
+ubuntu_fix_pkg_name() {
+  local name="$1"
+  local mapped=""
+
+  case "$name" in
+    docker)
+      mapped="docker.io"
+      warn "On Ubuntu, 'docker' is usually 'docker.io' from the official archive."
+      ;;
+    node)
+      mapped="nodejs"
+      warn "'node' is 'nodejs' in Ubuntu repos."
+      ;;
+    npm)
+      mapped="npm"
+      ;;
+    pip|pip3|python-pip)
+      mapped="python3-pip"
+      warn "Using 'python3-pip' instead of 'pip'."
+      ;;
+    python)
+      mapped="python3"
+      warn "'python' command is 'python3' on modern Ubuntu."
+      ;;
+    mysql)
+      mapped="mysql-server"
+      warn "'mysql' maps to 'mysql-server' on Ubuntu."
+      ;;
+    mysql-client)
+      mapped="mysql-client"
+      ;;
+    mongodb)
+      warn "MongoDB is not in main Ubuntu repos (newer releases). Consider upstream instructions."
+      mapped="mongodb-clients"
+      ;;
+    redis)
+      mapped="redis-server"
+      ;;
+    yarnpkg)
+      mapped="yarn"
+      ;;
+    yarn)
+      mapped="yarn"
+      ;;
+    gcc|g++)
+      mapped="build-essential"
+      warn "'$name' is part of build-essential on Ubuntu."
+      ;;
+    go|golang)
+      mapped="golang-go"
+      ;;
+    pkgconfig|pkg-config)
+      mapped="pkg-config"
+      ;;
+    ifconfig)
+      mapped="net-tools"
+      warn "'ifconfig' is provided by 'net-tools'."
+      ;;
+    # Fallbacks similar to Debian
+    *)
+      mapped="$(debian_fix_pkg_name "$name")"
+      ;;
+  esac
+
+  echo "$mapped"
+}
+
+# Arch mapping (pacman)
+arch_fix_pkg_name() {
+  local name="$1"
+  local mapped=""
+
+  case "$name" in
+    node)
+      mapped="nodejs"
+      ;;
+    pip|pip3|python-pip)
+      mapped="python-pip"
+      ;;
+    python)
+      mapped="python"
+      ;;
+    mysql)
+      mapped="mariadb"
+      ;;
+    mysql-client)
+      mapped="mariadb-clients"
+      ;;
+    redis)
+      mapped="redis"
+      ;;
+    yarnpkg)
+      mapped="yarn"
+      ;;
+    pkg-config)
+      mapped="pkgconf"
+      ;;
+    ifconfig)
+      mapped="net-tools"
+      ;;
+    build-essential)
+      mapped="base-devel"
+      ;;
+    *)
+      mapped="$name"
+      ;;
+  esac
+
+  echo "$mapped"
+}
+
+# RedHat (dnf/yum) mapping
+redhat_fix_pkg_name() {
+  local name="$1"
+  local mapped=""
+
+  case "$name" in
+    node)
+      mapped="nodejs"
+      ;;
+    npm)
+      mapped="npm"
+      ;;
+    pip|pip3|python-pip)
+      mapped="python3-pip"
+      ;;
+    python)
+      mapped="python3"
+      ;;
+    mysql)
+      mapped="mariadb-server"
+      warn "'mysql' is provided by 'mariadb-server' on many RedHat-based systems."
+      ;;
+    mysql-client)
+      mapped="mariadb"
+      ;;
+    yarnpkg)
+      mapped="yarn"
+      ;;
+    pkg-config)
+      mapped="pkgconfig"
+      ;;
+    ifconfig)
+      mapped="net-tools"
+      ;;
+    build-essential|base-devel)
+      mapped="gcc"
+      ;;
+    *)
+      mapped="$name"
+      ;;
+  esac
+
+  echo "$mapped"
+}
+
+# SUSE (zypper) mapping
+suse_fix_pkg_name() {
+  local name="$1"
+  local mapped=""
+
+  case "$name" in
+    node)
+      mapped="nodejs"
+      ;;
+    npm)
+      mapped="npm10"   # conservative; user can adjust
+      ;;
+    pip|pip3|python-pip)
+      mapped="python3-pip"
+      ;;
+    python)
+      mapped="python3"
+      ;;
+    mysql)
+      mapped="mariadb"
+      ;;
+    mysql-client)
+      mapped="mariadb-client"
+      ;;
+    ifconfig)
+      mapped="net-tools-deprecated"
+      ;;
+    build-essential|base-devel)
+      mapped="gcc"
+      ;;
+    *)
+      mapped="$name"
+      ;;
+  esac
+
+  echo "$mapped"
+}
+
+# Alpine (apk) mapping
+alpine_fix_pkg_name() {
+  local name="$1"
+  local mapped=""
+
+  case "$name" in
+    node)
+      mapped="nodejs"
+      ;;
+    npm)
+      mapped="npm"
+      ;;
+    pip|pip3|python-pip)
+      mapped="py3-pip"
+      ;;
+    python)
+      mapped="python3"
+      ;;
+    mysql)
+      mapped="mariadb"
+      ;;
+    mysql-client)
+      mapped="mariadb-client"
+      ;;
+    build-essential|base-devel)
+      mapped="build-base"
+      ;;
+    ifconfig)
+      mapped="net-tools"
+      ;;
+    pkg-config)
+      mapped="pkgconf"
+      ;;
+    *)
+      mapped="$name"
+      ;;
+  esac
+
+  echo "$mapped"
+}
+
+# Void (xbps) mapping
+void_fix_pkg_name() {
+  local name="$1"
+  local mapped=""
+
+  case "$name" in
+    node)
+      mapped="nodejs"
+      ;;
+    pip|pip3|python-pip)
+      mapped="python3-pip"
+      ;;
+    python)
+      mapped="python3"
+      ;;
+    mysql)
+      mapped="mariadb-server"
+      ;;
+    mysql-client)
+      mapped="mariadb-client"
+      ;;
+    build-essential|base-devel)
+      mapped="base-devel"
+      ;;
+    ifconfig)
+      mapped="net-tools"
+      ;;
+    pkg-config)
+      mapped="pkg-config"
+      ;;
+    *)
+      mapped="$name"
+      ;;
+  esac
+
+  echo "$mapped"
+}
+
+# Gentoo (emerge) mapping
+gentoo_fix_pkg_name() {
+  local name="$1"
+  local mapped=""
+
+  case "$name" in
+    node)
+      mapped="net-libs/nodejs"
+      ;;
+    npm)
+      mapped="net-libs/nodejs"
+      ;;
+    pip|pip3|python-pip)
+      mapped="dev-python/pip"
+      ;;
+    python)
+      mapped="dev-lang/python"
+      ;;
+    mysql)
+      mapped="dev-db/mariadb"
+      ;;
+    mysql-client)
+      mapped="dev-db/mariadb-tools"
+      ;;
+    build-essential|base-devel)
+      mapped="system"
+      ;;
+    *)
+      mapped="$name"
+      ;;
+  esac
+
+  echo "$mapped"
+}
+
+###############################################################################
 # DEBIAN HELPERS
 ###############################################################################
 
-debian_fix_pkg_name() {
-  local name="$1"
-  case "$name" in
-    docker)
-      warn "On Debian/Ubuntu, 'docker' is usually 'docker.io'. Using 'docker.io'."
-      echo "docker.io"
-      ;;
-    node)
-      warn "On Debian/Ubuntu, 'node' is usually 'nodejs'. Using 'nodejs'."
-      echo "nodejs"
-      ;;
-    pip|python-pip)
-      warn "On Debian/Ubuntu, pip is typically 'python3-pip'. Using 'python3-pip'."
-      echo "python3-pip"
-      ;;
-    *)
-      echo "$name"
-      ;;
-  esac
-}
-
 debian_pkg_exists() {
   local pkg="$1"
-  debug "Checking Debian package existence via apt-cache show: ${pkg}"
+  debug "Checking Debian/Ubuntu package existence via apt-cache show: ${pkg}"
   if apt-cache show "$pkg" >/dev/null 2>&1; then
     return 0
   fi
@@ -526,11 +1010,16 @@ debian_install_pkgs() {
   local present=()
   local missing=()
 
+  local fix_fn="debian_fix_pkg_name"
+  if is_ubuntu_like; then
+    fix_fn="ubuntu_fix_pkg_name"
+  fi
+
   local p fixed
   for p in "${original_pkgs[@]}"; do
-    fixed="$(debian_fix_pkg_name "$p")"
+    fixed="$("$fix_fn" "$p")"
     if [[ "$fixed" != "$p" ]]; then
-      log "Mapped package '$p' -> '$fixed' for Debian/Ubuntu."
+      log "Mapped package '$p' -> '$fixed' for $(is_ubuntu_like && echo Ubuntu || echo Debian)."
     fi
     fixed_pkgs+=("$fixed")
   done
@@ -591,7 +1080,7 @@ debian_install_pkgs() {
     return 1
   fi
 
-  echo "vopk: Packages to install (Debian/Ubuntu):"
+  echo "vopk: Packages to install ($(is_ubuntu_like && echo Ubuntu || echo Debian)):"
   printf '  %s\n' "${present[@]}"
 
   echo
@@ -661,14 +1150,23 @@ install_yay_if_needed() {
 }
 
 arch_install_with_yay() {
-  local pkgs=("$@")
+  local raw_pkgs=("$@")
+  local pkgs=()
   local official_pkgs=()
   local aur_candidates=()
-  local p
+  local p fixed
 
-  if [[ ${#pkgs[@]} -eq 0 ]]; then
+  if [[ ${#raw_pkgs[@]} -eq 0 ]]; then
     die "You must specify at least one package to install."
   fi
+
+  for p in "${raw_pkgs[@]}"; do
+    fixed="$(arch_fix_pkg_name "$p")"
+    if [[ "$fixed" != "$p" ]]; then
+      log "Mapped package '$p' -> '$fixed' for Arch."
+    fi
+    pkgs+=("$fixed")
+  done
 
   for p in "${pkgs[@]}"; do
     if pacman -Si "$p" >/dev/null 2>&1; then
@@ -756,7 +1254,16 @@ cmd_update() {
   fi
 
   if [[ "${VOPK_DRY_RUN}" -eq 1 ]]; then
-    vopk_preview ${SUDO} ${PKG_MGR} update 2>/dev/null || true
+    case "${PKG_MGR_FAMILY}" in
+      debian)      vopk_preview ${SUDO} ${PKG_MGR} update 2>/dev/null || true ;;
+      debian_dpkg) warn "dpkg-only: no repo metadata to update." ;;
+      arch)        vopk_preview ${SUDO} pacman -Sy --noconfirm ;;
+      redhat)      vopk_preview ${SUDO} ${PKG_MGR} makecache ;;
+      suse)        vopk_preview ${SUDO} zypper refresh ;;
+      alpine)      vopk_preview ${SUDO} apk --no-interactive update ;;
+      void)        vopk_preview ${SUDO} xbps-install -S ;;
+      gentoo)      vopk_preview ${SUDO} emerge --sync ;;
+    esac
     return 0
   fi
 
@@ -801,13 +1308,14 @@ cmd_upgrade() {
 
   if [[ "${VOPK_DRY_RUN}" -eq 1 ]]; then
     case "${PKG_MGR_FAMILY}" in
-      debian) vopk_preview ${SUDO} ${PKG_MGR} upgrade -y ;;
-      arch)   vopk_preview ${SUDO} pacman -Su --noconfirm ;;
-      redhat) vopk_preview ${SUDO} ${PKG_MGR} upgrade -y ;;
-      suse)   vopk_preview ${SUDO} zypper update -y ;;
-      alpine) vopk_preview ${SUDO} apk --no-interactive upgrade ;;
-      void)   vopk_preview ${SUDO} xbps-install -Su ;;
-      gentoo) vopk_preview ${SUDO} emerge -uD @world ;;
+      debian)      vopk_preview ${SUDO} ${PKG_MGR} upgrade -y ;;
+      debian_dpkg) warn "dpkg-only: upgrades via repos not possible." ;;
+      arch)        vopk_preview ${SUDO} pacman -Su --noconfirm ;;
+      redhat)      vopk_preview ${SUDO} ${PKG_MGR} upgrade -y ;;
+      suse)        vopk_preview ${SUDO} zypper update -y ;;
+      alpine)      vopk_preview ${SUDO} apk --no-interactive upgrade ;;
+      void)        vopk_preview ${SUDO} xbps-install -Su ;;
+      gentoo)      vopk_preview ${SUDO} emerge -uD @world ;;
     esac
     return 0
   fi
@@ -853,16 +1361,19 @@ cmd_full_upgrade() {
 
   if [[ "${VOPK_DRY_RUN}" -eq 1 ]]; then
     case "${PKG_MGR_FAMILY}" in
-      debian) vopk_preview ${SUDO} ${PKG_MGR} dist-upgrade -y ;;
-      arch)   vopk_preview ${SUDO} pacman -Syu --noconfirm ;;
-      redhat) vopk_preview ${SUDO} ${PKG_MGR} upgrade -y ;;
-      suse)   vopk_preview ${SUDO} zypper dist-upgrade -y || vopk_preview ${SUDO} zypper dup -y ;;
+      debian)      vopk_preview ${SUDO} ${PKG_MGR} dist-upgrade -y ;;
+      debian_dpkg) warn "dpkg-only: full upgrade not possible." ;;
+      arch)        vopk_preview ${SUDO} pacman -Syu --noconfirm ;;
+      redhat)      vopk_preview ${SUDO} ${PKG_MGR} upgrade -y ;;
+      suse)
+        vopk_preview ${SUDO} zypper dist-upgrade -y || vopk_preview ${SUDO} zypper dup -y
+        ;;
       alpine)
         vopk_preview ${SUDO} apk --no-interactive update
         vopk_preview ${SUDO} apk --no-interactive upgrade
         ;;
-      void)   vopk_preview ${SUDO} xbps-install -Su ;;
-      gentoo) vopk_preview ${SUDO} emerge -uD @world ;;
+      void)        vopk_preview ${SUDO} xbps-install -Su ;;
+      gentoo)      vopk_preview ${SUDO} emerge -uD @world ;;
     esac
     return 0
   fi
@@ -920,7 +1431,16 @@ cmd_install() {
       ;;
 
     redhat)
-      check_pkgs_exist_generic "$@"
+      local mapped=() p fixed
+      for p in "$@"; do
+        fixed="$(redhat_fix_pkg_name "$p")"
+        if [[ "$fixed" != "$p" ]]; then
+          log "Mapped package '$p' -> '$fixed' for RedHat-family."
+        fi
+        mapped+=("$fixed")
+      done
+
+      check_pkgs_exist_generic "${mapped[@]}"
       if ((${#VOPK_PRESENT_PKGS[@]} == 0)); then
         warn "No valid packages to install (RedHat family)."
         return 1
@@ -954,7 +1474,16 @@ cmd_install() {
       ;;
 
     suse)
-      check_pkgs_exist_generic "$@"
+      local mapped_s=() sp sfix
+      for sp in "$@"; do
+        sfix="$(suse_fix_pkg_name "$sp")"
+        if [[ "$sfix" != "$sp" ]]; then
+          log "Mapped package '$sp' -> '$sfix' for SUSE."
+        fi
+        mapped_s+=("$sfix")
+      done
+
+      check_pkgs_exist_generic "${mapped_s[@]}"
       if ((${#VOPK_PRESENT_PKGS[@]} == 0)); then
         warn "No valid packages to install (SUSE)."
         return 1
@@ -984,7 +1513,16 @@ cmd_install() {
       ;;
 
     alpine)
-      check_pkgs_exist_generic "$@"
+      local mapped_a=() ap afix
+      for ap in "$@"; do
+        afix="$(alpine_fix_pkg_name "$ap")"
+        if [[ "$afix" != "$ap" ]]; then
+          log "Mapped package '$ap' -> '$afix' for Alpine."
+        fi
+        mapped_a+=("$afix")
+      done
+
+      check_pkgs_exist_generic "${mapped_a[@]}"
       if ((${#VOPK_PRESENT_PKGS[@]} == 0)); then
         warn "No valid packages to install (Alpine)."
         return 1
@@ -1014,7 +1552,16 @@ cmd_install() {
       ;;
 
     void)
-      check_pkgs_exist_generic "$@"
+      local mapped_v=() vp vfix
+      for vp in "$@"; do
+        vfix="$(void_fix_pkg_name "$vp")"
+        if [[ "$vfix" != "$vp" ]]; then
+          log "Mapped package '$vp' -> '$vfix' for Void."
+        fi
+        mapped_v+=("$vfix")
+      done
+
+      check_pkgs_exist_generic "${mapped_v[@]}"
       if ((${#VOPK_PRESENT_PKGS[@]} == 0)); then
         warn "No valid packages to install (Void)."
         return 1
@@ -1046,23 +1593,32 @@ cmd_install() {
       ;;
 
     gentoo)
+      local mapped_g=() gp gfix
+      for gp in "$@"; do
+        gfix="$(gentoo_fix_pkg_name "$gp")"
+        if [[ "$gfix" != "$gp" ]]; then
+          log "Mapped package '$gp' -> '$gfix' for Gentoo."
+        fi
+        mapped_g+=("$gfix")
+      done
+
       echo "vopk: Packages to install (Gentoo):"
-      printf '  %s\n' "$@"
+      printf '  %s\n' "${mapped_g[@]}"
 
       echo
-      vopk_preview ${SUDO} emerge -p "$@"
+      vopk_preview ${SUDO} emerge -p "${mapped_g[@]}"
       echo
 
       if [[ "${VOPK_DRY_RUN}" -eq 1 ]]; then
         return 0
       fi
 
-      if ! vopk_confirm "Install packages: $* ?"; then
+      if ! vopk_confirm "Install packages: ${mapped_g[*]} ?"; then
         return 1
       fi
 
       local out_g=""
-      if run_and_capture out_g ${SUDO} emerge "$@"; then
+      if run_and_capture out_g ${SUDO} emerge "${mapped_g[@]}"; then
         return 0
       else
         warn "Install failed."
@@ -1228,6 +1784,9 @@ cmd_autoremove() {
   if [[ "${VOPK_DRY_RUN}" -eq 1 ]]; then
     case "${PKG_MGR_FAMILY}" in
       debian) vopk_preview ${SUDO} ${PKG_MGR} autoremove -y ;;
+      debian_dpkg)
+        warn "Autoremove not supported in dpkg-only mode."
+        ;;
       arch)
         local ORPHANS
         ORPHANS=$(pacman -Qdtq 2>/dev/null || true)
@@ -1478,6 +2037,7 @@ cmd_clean() {
   if [[ "${VOPK_DRY_RUN}" -eq 1 ]]; then
     case "${PKG_MGR_FAMILY}" in
       debian)      vopk_preview ${SUDO} ${PKG_MGR} clean ;;
+      debian_dpkg) warn "No apt cache to clean in dpkg-only mode." ;;
       arch)        vopk_preview ${SUDO} pacman -Scc --noconfirm ;;
       redhat)      vopk_preview ${SUDO} ${PKG_MGR} clean all ;;
       suse)        vopk_preview ${SUDO} zypper clean --all ;;
@@ -1701,6 +2261,9 @@ cmd_install_dev_kit() {
         vopk_preview ${SUDO} ${PKG_MGR} update
         vopk_preview ${SUDO} ${PKG_MGR} install -y build-essential git curl wget pkg-config
         ;;
+      debian_dpkg)
+        warn "dpkg-only mode: cannot pull dev tools from repos (no apt)."
+        ;;
       arch)
         vopk_preview arch_install_with_yay base-devel git curl wget pkgconf
         ;;
@@ -1717,6 +2280,9 @@ cmd_install_dev_kit() {
         ;;
       void)
         vopk_preview ${SUDO} xbps-install -y base-devel git curl wget pkg-config
+        ;;
+      gentoo)
+        vopk_preview ${SUDO} emerge --info >/dev/null 2>&1 || true
         ;;
     esac
     return 0
@@ -1813,6 +2379,11 @@ cmd_sys_info() {
   echo "=== uname -a ==="
   uname -a || true
   echo
+  echo "=== OS (from /etc/os-release) ==="
+  echo "ID:           ${DISTRO_ID:-?}"
+  echo "ID_LIKE:      ${DISTRO_ID_LIKE:-?}"
+  echo "PRETTY_NAME:  ${DISTRO_PRETTY_NAME:-?}"
+  echo
   echo "=== CPU ==="
   grep -m1 'model name' /proc/cpuinfo 2>/dev/null || echo "CPU info unavailable"
   echo
@@ -1860,16 +2431,13 @@ cmd_ip() {
 cmd_doctor() {
   ui_title "vopk doctor"
 
-  local uname_s os_name=""
+  local uname_s
   uname_s="$(uname -s || echo "Unknown")"
-  if [[ -f /etc/os-release ]]; then
-    # shellcheck disable=SC1091
-    . /etc/os-release
-    os_name="${PRETTY_NAME:-$NAME}"
-  fi
 
-  echo "OS kernel:    $uname_s"
-  echo "OS name:      ${os_name:-Unknown}"
+  echo "Kernel:       $uname_s"
+  echo "OS:           ${DISTRO_PRETTY_NAME:-Unknown}"
+  echo "OS ID:        ${DISTRO_ID:-Unknown}"
+  echo "OS ID_LIKE:   ${DISTRO_ID_LIKE:-Unknown}"
   echo "User:         $(id -un 2>/dev/null || echo '?')"
   echo "EUID:         ${EUID}"
   echo "SUDO cmd:     ${SUDO:-<none>}"
@@ -2071,5 +2639,6 @@ main() {
 # ENTRY POINT
 ###############################################################################
 
+detect_distro
 init_sudo
 main "$@"
