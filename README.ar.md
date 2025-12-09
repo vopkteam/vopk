@@ -132,16 +132,16 @@ vopk vmpkg list
 ---
 
 ## 🏗 التثبيت
-### سكربت التثبيت (موصى به)
+### سكربت التثبيت (موصى به) (يتطلب تشغيله كـroot)
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/src/installscript.sh)
 ```
 
-### طريقة بديلة (في حال حظر process substitution)
+### التحميل بدون root
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/src/installscript.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/src/installscript.sh | sudo bash -s -- -y
 ```
 
 ---

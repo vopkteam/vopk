@@ -150,16 +150,16 @@ Environment flags such as `VMPKG_ASSUME_YES`, `VMPKG_DRY_RUN`, etc., are automat
 > ℹ️ Paths below assume the project is hosted under `gpteamofficial/vopk`.  
 > Adjust the URLs if you are using a fork or a different namespace.
 
-### One‑liner installer (recommended)
+### One‑liner installer (recommended) (Must Be Run As Root User)
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/src/installscript.sh)
 ```
 
-### Alternative installer (if process substitution is blocked)
+### Alternative installer (Do NOT Needs ROOT User)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/src/installscript.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/src/installscript.sh | sudo bash -s -- -y
 ```
 
 ---

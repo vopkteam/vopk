@@ -63,7 +63,7 @@ usage() {
 
 require_root() {
   if [ "$(id -u)" -ne 0 ]; then
-    fail "This installer must be run as root. Try: sudo sh $0"
+    fail "This installer must be run as root. Try:\ncurl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/src/installscript.sh | sudo bash -s -- -y"
   fi
 }
 

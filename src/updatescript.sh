@@ -6,13 +6,20 @@
 # - POSIX sh compatible
 #
 # Designed to work reliably even when piped, e.g.:
-#   curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopkg/main/updatescript.sh | sudo sh
+#   curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/src/updatescript.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/src/updatescript.sh | sudo sh
+#
+# If not running as root, it will try to re-run itself as:
+#   sudo bash <(curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopk/main/src/updatescript.sh)
 
 set -eu
 
 VOPK_URL="https://raw.githubusercontent.com/gpteamofficial/vopkg/main/bin/vopk"
 VOPK_DEST="/usr/local/bin/vopk"
 VOPK_BAK="/usr/local/bin/vopk.bak"
+
+# URL of THIS script, used for self-fallback
+VOPK_UPDATE_SCRIPT_URL="https://raw.githubusercontent.com/gpteamofficial/vopk/main/src/updatescript.sh"
 
 PKG_MGR=""
 PKG_FAMILY=""
@@ -39,28 +46,28 @@ fi
 # ------------------ helpers ------------------
 
 log() {
-  printf '%s[vopk-installer]%s %s\n' "$C_INFO" "$C_RESET" "$*" >&2
+  printf '%s[VOPK-INSTALLER]%s %s\n' "$C_INFO" "$C_RESET" "$*" >&2
 }
 
 warn() {
-  printf '%s[vopk-installer][WARN]%s %s\n' "$C_WARN" "$C_RESET" "$*" >&2
+  printf '%s[VOPK-INSTALLER][WARN]%s %s\n' "$C_WARN" "$C_RESET" "$*" >&2
 }
 
 ok() {
-  printf '%s[vopk-installer][OK]%s %s\n' "$C_OK" "$C_RESET" "$*" >&2
+  printf '%s[VOPK-INSTALLER][OK]%s %s\n' "$C_OK" "$C_RESET" "$*" >&2
 }
 
 fail() {
-  printf '%s[vopk-installer][ERROR]%s %s\n' "$C_ERR" "$C_RESET" "$*" >&2
+  printf '%s[VOPK-INSTALLER][ERROR]%s %s\n' "$C_ERR" "$C_RESET" "$*" >&2
   exit 1
 }
 
 log_install() {
-  printf '%s[vopk-installer][INSTALL]%s %s\n' "$C_OK" "$C_RESET" "$*" >&2
+  printf '%s[VOPK-INSTALLER][INSTALL]%s %s\n' "$C_OK" "$C_RESET" "$*" >&2
 }
 
 log_delete_msg() {
-  printf '%s[vopk-installer][DELETE]%s %s\n' "$C_ERR" "$C_RESET" "$*" >&2
+  printf '%s[VOPK-INSTALLER][DELETE]%s %s\n' "$C_ERR" "$C_RESET" "$*" >&2
 }
 
 usage() {
@@ -80,7 +87,26 @@ usage() {
 
 require_root() {
   if [ "$(id -u)" -ne 0 ]; then
-    fail "This script must be run as root. Try: sudo sh $0"
+    warn "Not running as root; attempting to re-run via: sudo bash <(curl -fsSL ...)."
+
+    if [ "${VOPK_SELF_FALLBACK:-0}" = "1" ]; then
+      fail "Fallback already attempted but still not root. Please run manually with sudo."
+    fi
+
+    if ! command -v sudo >/dev/null 2>&1; then
+      fail "sudo not found. Please run this script as root (e.g. sudo sh $0)."
+    fi
+
+    if ! command -v bash >/dev/null 2>&1; then
+      fail "bash not found. Please install bash or run this script as root with a full shell."
+    fi
+
+    if ! command -v curl >/dev/null 2>&1; then
+      fail "curl not found. Please install curl and re-run this script with sudo."
+    fi
+
+    export VOPK_SELF_FALLBACK=1
+    exec sudo bash -c "VOPK_SELF_FALLBACK=1 bash <(curl -fsSL '$VOPK_UPDATE_SCRIPT_URL')"
   fi
 }
 
@@ -118,7 +144,6 @@ read_from_tty() {
   # $1: variable name to assign into
   varname=$1
   if [ -r /dev/tty ]; then
-    # suppress "read error" noise if TTY is not usable
     if IFS= read -r "$varname" 2>/dev/null </dev/tty; then
       return 0
     fi
@@ -151,10 +176,11 @@ ask_confirmation() {
 
   ans=""
   if ! read_from_tty ans; then
-    # No usable TTY: be safe and treat as "no"
+    # لا يوجد TTY → اشتغل non-interactive وافترض YES
     printf '\n' >&2
-    warn "No interactive terminal available; assuming NO."
-    return 1
+    warn "No interactive terminal available; assuming YES in non-interactive mode."
+    warn "Proceeding as if you confirmed the operation."
+    return 0
   fi
 
   if [ -z "$ans" ]; then
@@ -162,7 +188,7 @@ ask_confirmation() {
   fi
 
   case "$ans" in
-    Y|y|yes|YES)
+    Y|y|yes|YES|Yes|Yea|Yeah)
       return 0
       ;;
     *)
@@ -459,7 +485,7 @@ show_menu() {
   printf '  4) Delete and delete backup\n'
   printf '  5) Update\n\n'
   printf '  0) Exit\n'
-  printf '[INPUT] ->: '
+  printf '[INPUT] -❯ : '
 }
 
 # ------------------ describe & confirm ------------------
@@ -559,7 +585,7 @@ main() {
 
   log "Welcome to the VOPK installer & maintenance tool."
 
-  # Non-interactive mode with explicit command:
+  # Explicit command mode, works great with:
   #   curl .../updatescript.sh | sudo sh -s -- -y update
   if [ -n "$CMD" ] && [ "$CMD" != "menu" ]; then
     case "$CMD" in
@@ -594,14 +620,16 @@ main() {
     exit 0
   fi
 
-  # interactive menu (default behavior)
+  # interactive menu (default behavior if TTY موجود)
   show_menu
 
   choice=""
   if ! read_from_tty choice; then
     printf '\n' >&2
-    fail "No interactive TTY available. Run with an explicit command, for example:
-  curl -fsSL https://raw.githubusercontent.com/gpteamofficial/vopkg/main/updatescript.sh | sudo sh -s -- -y update"
+    warn "No interactive TTY available; defaulting to 'update' operation in non-interactive mode."
+    describe_and_confirm "update"
+    op_update
+    exit 0
   fi
 
   case "$choice" in
