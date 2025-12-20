@@ -4,7 +4,7 @@
 It provides **one CLI** for all major Linux distributions — with identical commands, predictable behavior, and a cleaner UX.
 <p align="center">
   <a href="https://github.com/gpteamofficial/vopk">
-    <img src="https://img.shields.io/badge/platform-Linux-333333?logo=linux&logoColor=ffffff" alt="Platform: Linux">
+    <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20BSD-333333?logo=linux&logoColor=ffffff" alt="Platform: Linux / macOS / BSD">
   </a>
   <a href="https://github.com/gpteamofficial/vopk">
     <img src="https://img.shields.io/badge/shell-BASH-4EAA25?logo=gnu-bash&logoColor=ffffff" alt="Shell: Bash">
@@ -17,6 +17,11 @@ It provides **one CLI** for all major Linux distributions — with identical com
   </a>
 </p>
 
+> 🆕 **1.2.0 – Homebrew + BSD support**  
+> - Native **Homebrew** backend on macOS (no sudo needed)  
+> - New **BSD** backends: FreeBSD `pkg`, NetBSD `pkgin/pkg_add`, OpenBSD `pkg_add`  
+> - UI polish for non-Linux systems (better sys-info/ip fallbacks)  
+> 
 > 🆕 **1.0.0 – the biggest update in APKG history**  
 > - Project renamed from **APKG → VOPK**  
 > - First official **stable** release (out of beta)  
@@ -25,7 +30,7 @@ It provides **one CLI** for all major Linux distributions — with identical com
 > - Optional **vmpkg backend** support  
 > - Many bug fixes and safety improvements
 
-Whether you're on Debian, Ubuntu, Arch, Fedora, openSUSE, Alpine, Void, Gentoo, or inside a container/WSL/VM — **VOPK just works**.
+Whether you're on Debian, Ubuntu, Arch, Fedora, openSUSE, Alpine, Void, Gentoo, macOS (Homebrew), or BSDs — **VOPK just works**.
 
 ---
 
@@ -96,6 +101,9 @@ VOPK is designed to be comfortable for beginners while still powerful enough for
 | **apk**              | Alpine Linux                                              |
 | **xbps-install**     | Void Linux                                                |
 | **emerge**           | Gentoo                                                    |
+| **brew**             | macOS (Homebrew)                                         |
+| **pkg**              | FreeBSD (pkgng)                                          |
+| **pkgin / pkg_add**  | NetBSD (pkgin/pkg_add), OpenBSD (pkg_add)                |
 | **dpkg (fallback)**  | Debian-based systems without apt/apt-get                  |
 | **vmpkg (optional)** | If `vmpkg` is installed and no system PM is available     |
 
