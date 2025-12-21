@@ -12,6 +12,9 @@
 > - عشرات الإصلاحات والتحسينات في الأمان والسلوك
 
 سواءً كنت على Debian، Ubuntu، Arch، Fedora، openSUSE، Alpine، Void، Gentoo، أو داخل Container / WSL / VM — **VOPK يعمل ببساطة**.
+---
+
+## الموقع الرسمي: https://gpteamofficial.github.io/vopk/
 
 ---
 
