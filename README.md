@@ -85,15 +85,14 @@ Need more power? Drop a script into `~/.config/vopk/plugins`.
 Installs the latest stable version (3.0.0) to your system.
 
 ```bash
-bash <(curl -fsSL [https://raw.githubusercontent.com/vopkteam/vopk/main/install.sh](https://raw.githubusercontent.com/vopkteam/vopk/main/install.sh))
+bash <(curl -fsSL https://raw.githubusercontent.com/vopkteam/vopk/main/install.sh)
 ```
 
 ### Manual Installation
 ```bash
-git clone [https://github.com/vopkteam/vopk.git](https://github.com/vopkteam/vopk.git)
-cd vopk
-sudo cp vopk /usr/local/bin/
-sudo chmod +x /usr/local/bin/vopk
+git clone https://github.com/vopkteam/vopk.git ~/.vopkbuild
+cd ~/.vopkbuild/bin
+sudo install -m 775 vopk /usr/local/bin/vopk
 ```
 
 ---
